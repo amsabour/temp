@@ -433,7 +433,9 @@ if args.dataset_name in ['cifar10', 'cifar100', 'imagenet']:
 elif args.dataset_name == 'mnist':
     criterion = torch.nn.NLLLoss(reduction='mean')
 
-steps_per_virtual_epoch = int((average_epochs * len(train_set)) / (batch_size * virtual_epoch_num))
+steps_per_virtual_epoch = np.ceil(len(train_set) / batch_size) * average_epochs / virtual_epoch_num
+steps_per_virtual_epoch = int(steps_per_virtual_epoch)
+
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
