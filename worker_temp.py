@@ -201,7 +201,6 @@ def test_class(model, loader, device):
 def test(epoch, model, device, writer, train_loader, test_loader, verbose=True):
     model.eval()
     loader = train_loader
-    log("Starting test")
     train_correct = test_class(model, loader, device)
     if rank == 0 and verbose:
         log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch + 1, (train_correct / len(loader.dataset)) * 100))
@@ -567,6 +566,9 @@ def compute_accuracies():
 
     # Make sure everyone is here
     comm.Barrier()
+
+    if rank == 0:
+        log("Starting test")
 
     # Create these to store number of correct predictions for train, test
     corrects = np.zeros(2)
