@@ -553,6 +553,7 @@ comm.Barrier()
 
 # Start the clock!
 start = time.time()
+best_test_acc = -100
 
 
 def compute_accuracies():
@@ -639,6 +640,9 @@ def end_of_epoch(epoch):
         log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, train_accuracy))
         log('\nTest set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, test_accuracy))
 
+        if test_accuracy > best_test_acc:
+            best_test_acc = test_accuracy
+
         if writer:
             writer.add_scalar('Train accuracy', train_accuracy, epoch)
             writer.add_scalar('Test accuracy', test_accuracy, epoch)
@@ -723,6 +727,8 @@ try:
             scheduler.step()
 
     log("WOOOOOOOOOOOOOOOOOO")
+    if rank == 0:
+        log(best_test_acc)
 
     # Wait for everyone to finish
     comm.Barrier()
