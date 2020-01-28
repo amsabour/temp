@@ -729,7 +729,7 @@ try:
 
     log("WOOOOOOOOOOOOOOOOOO")
     if rank == 0:
-        log("Best train accuracy: %s" % np.max(train_accuracies))
+        # log("Best train accuracy: %s" % np.max(train_accuracies))
         log("Best test accuracy: %s" % np.max(test_accuracies))
 
     # Wait for everyone to finish
