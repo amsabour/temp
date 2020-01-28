@@ -666,6 +666,14 @@ try:
     virtual_epoch = 0
 
     if size > 1:
+        # Warm up phase
+        for epoch in range(warmup_epochs):
+            for (data, target) in train_loader:
+                # Move data to the gpu
+                data, target = data.to(device), target.to(device)
+                # Perform one SGD step and get the loss
+                loss = model_update(model, optimizer, epoch, data, target, criterion)
+
         # If size > 1 we perform popsgd
         for epoch in range(average_epochs):
             for (data, target) in train_loader:
@@ -695,19 +703,14 @@ try:
                             # Write whatever is in the buffers to the file
                             writer.flush()
 
-                if epoch < warmup_epochs or counter % local_updates != 0:
-                    continue
-
-                communicate()
+                if counter % local_updates == 0:
+                    communicate()
 
                 # Compute and log accuracies, update scheduler, and wait for everyone to catch up
                 # at the end of each virtual epoch
                 if counter % steps_per_virtual_epoch == 0:
                     virtual_epoch += 1
                     end_of_epoch(virtual_epoch)
-
-            if rank == 0 and writer:
-                writer.flush()
 
     else:
         # If size=1 then we perform a simple SGD.
