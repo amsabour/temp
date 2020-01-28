@@ -641,7 +641,7 @@ def end_of_epoch(epoch):
         log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, train_accuracy))
         log('\nTest set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, test_accuracy))
 
-        train_accuracies.append(train_accuracy)
+        # train_accuracies.append(train_accuracy)
         test_accuracies.append(test_accuracy)
 
         if writer:
