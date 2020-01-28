@@ -691,7 +691,7 @@ try:
                         # Add loss to the logs
                         writer.add_scalar('Train loss', loss.item(), counter)
 
-                        if steps % (20 * log_interval):
+                        if counter % (20 * log_interval):
                             # Write whatever is in the buffers to the file
                             writer.flush()
 
