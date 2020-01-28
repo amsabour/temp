@@ -352,7 +352,6 @@ warmup_epochs = args.warmup_epochs
 save_model = args.save_model
 everyone_save = args.everyone_save
 save_log = not args.no_log
-fast = args.fast
 local_updates = args.local_updates
 log_interval = args.log_interval
 lr = args.lr
