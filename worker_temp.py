@@ -634,17 +634,17 @@ def end_of_epoch(epoch):
     if rank == 0:
         train_accuracy = (final_corrects[0] / len(train_set)) * 100
         test_accuracy = (final_corrects[1] / len(test_set)) * 100
-        log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch + 1, train_accuracy))
-        log('\nTest set: Epoch: {} Accuracy: {:.6f}%'.format(epoch + 1, test_accuracy))
+        log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, train_accuracy))
+        log('\nTest set: Epoch: {} Accuracy: {:.6f}%'.format(epoch, test_accuracy))
 
         if writer:
-            writer.add_scalar('Train accuracy', train_accuracy, epoch + 1)
-            writer.add_scalar('Test accuracy', test_accuracy, epoch + 1)
+            writer.add_scalar('Train accuracy', train_accuracy, epoch)
+            writer.add_scalar('Test accuracy', test_accuracy, epoch)
 
     # If --save-model was given, save model of process 0 (We are at the end of an epoch)
     if save_model:
         if everyone_save or (rank == 0):
-            torch.save(model.state_dict(), model_dir + "/" + "model_%s_epoch_%s.pt" % (rank, epoch + 1))
+            torch.save(model.state_dict(), model_dir + "/" + "model_%s_epoch_%s.pt" % (rank, epoch))
 
     # Tell the scheduler we have finished an epoch
     scheduler.step()
