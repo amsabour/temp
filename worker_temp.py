@@ -434,7 +434,6 @@ elif args.dataset_name == 'mnist':
     criterion = torch.nn.NLLLoss(reduction='mean')
 
 steps_per_virtual_epoch = np.ceil(len(train_set) / batch_size) * average_epochs / virtual_epoch_num
-steps_per_virtual_epoch = int(steps_per_virtual_epoch)
 
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
@@ -710,7 +709,7 @@ try:
 
                 # Compute and log accuracies, update scheduler, and wait for everyone to catch up
                 # at the end of each virtual epoch
-                if counter % steps_per_virtual_epoch == 0:
+                if counter // steps_per_virtual_epoch != virtual_epoch:
                     virtual_epoch += 1
                     end_of_epoch(virtual_epoch)
 
