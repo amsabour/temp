@@ -615,7 +615,7 @@ def communicate():
     copy_to_model(model, partner_model)
 
 
-def end_of_epoch():
+def end_of_epoch(epoch):
     # Now that the epoch has finished for process 0, we want to measure accuracy on it.
     # We do this by copying the entire model (Buffers and all) to the first sequential block
     # so everyone can see it
@@ -656,6 +656,7 @@ def end_of_epoch():
 try:
     # This counter will save the number of SGD steps performed on this process so far
     counter = 0
+    virtual_epoch = 0
 
     if size > 1:
         # If size > 1 we perform popsgd
@@ -677,7 +678,7 @@ try:
                 win.Unlock(rank)
 
                 if rank == 0 and counter % log_interval == 0:
-                    log('Train: Epoch: {} Step:{} Error: {:.6f}'.format(epoch + 1, steps, loss.item()))
+                    log('Train: Epoch: {} Step:{} Error: {:.6f}'.format(epoch + 1, counter, loss.item()))
 
                     if writer:
                         # Add loss to the logs
@@ -695,7 +696,8 @@ try:
                 # Compute and log accuracies, update scheduler, and wait for everyone to catch up
                 # at the end of each virtual epoch
                 if counter % steps_per_virtual_epoch == 0:
-                    end_of_epoch()
+                    virtual_epoch += 1
+                    end_of_epoch(virtual_epoch)
 
             if rank == 0 and writer:
                 writer.flush()
