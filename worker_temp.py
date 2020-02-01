@@ -527,14 +527,9 @@ distributed_test_loader = loader_construct(test_set_chunk, batch_size=batch_size
 log("%s - %s" % (train_start, train_end))
 log("%s - %s" % (test_start, test_end))
 
-# Create dummy model for purposes of finding accuracy (We need it to be a module not a tensor to use it)
-test_model = copy.deepcopy(model)
-
 # Move everything to the gpu and set it to train mode
 model = model.to(device)
 model.train()
-test_model = test_model.to(device)
-test_model.train()
 
 # Create the optimizer
 optimizer = optimizer_construct(model, lr, args.dataset_name, weight_decay=args.weight_decay)
@@ -559,13 +554,16 @@ test_accuracies = []
 
 
 def compute_accuracies():
+    # Everyone save their own model into model_copy!
+    total_model_to_copy(model, model_copy)
+
     # Everyone gets the model from process 0 (Buffer and all)
     win.Lock(0, lock_type=MPI.LOCK_SHARED)
     win.Get((partner_buf, MPI.FLOAT), target_rank=0)
     win.Unlock(0)
 
     # Apply model from process 0 to the dummy model we created for this purpose (Buffers and all in this case)
-    total_copy_to_model(test_model, partner_model)
+    total_copy_to_model(model, partner_model)
 
     # Make sure everyone is here
     comm.Barrier()
@@ -580,8 +578,10 @@ def compute_accuracies():
     final_corrects = np.zeros(2)
 
     # Calculate number of corrects for both train, test on the devices chunk from the dataset
-    corrects[0], corrects[1] = test(epoch, test_model, device, None, distributed_train_loader,
+    corrects[0], corrects[1] = test(epoch, model, device, None, distributed_train_loader,
                                     distributed_test_loader, verbose=False)
+
+    total_copy_to_model(model, model_copy)
 
     # Make sure everyone finished doing their part
     comm.Barrier()
