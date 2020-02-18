@@ -74,7 +74,8 @@ def model_construct(dataset_name):
     if dataset_name == 'cifar10':
         return resnet_cifar.resnet20_cifar(), 'resnet20'
     elif dataset_name == 'imagenet':
-        return wide_resnet.wide_resnet18_2(), 'wide_resnet18'
+        return resnet.resnet50(), 'resnet50'
+        #return wide_resnet.wide_resnet18_2(), 'wide_resnet18'
     elif dataset_name == 'imagenette':
         return resnet.resnet18(), 'resnet18'
     elif dataset_name == 'imagewoof':
@@ -119,9 +120,6 @@ def scheduler_construct(optimizer, dataset_name, warmup_epochs):
 
 
 def loader_construct(dataset, batch_size=64, num_workers=16):
-    if dataset in ["cifar10", "cifar100"]:
-        num_workers = 12
-
     return data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
 
 
@@ -203,7 +201,8 @@ def test_class(model, loader, device):
 def test(epoch, model, device, writer, train_loader, test_loader, verbose=True):
     model.eval()
     loader = train_loader
-    train_correct = test_class(model, loader, device)
+#     train_correct = test_class(model, loader, device)
+    train_correct = 0
     if rank == 0 and verbose:
         log('\nTrain set: Epoch: {} Accuracy: {:.6f}%'.format(epoch + 1, (train_correct / len(loader.dataset)) * 100))
 
@@ -523,8 +522,8 @@ train_set_chunk = Subset(train_set, list(range(train_start, train_end)))
 test_set_chunk = Subset(test_set, list(range(test_start, test_end)))
 
 # Create a loader on each of those subsets
-distributed_train_loader = loader_construct(train_set_chunk, batch_size=batch_size)
-distributed_test_loader = loader_construct(test_set_chunk, batch_size=batch_size)
+distributed_train_loader = loader_construct(train_set_chunk, batch_size=test_batch_size)
+distributed_test_loader = loader_construct(test_set_chunk, batch_size=test_batch_size)
 
 log("%s - %s" % (train_start, train_end))
 log("%s - %s" % (test_start, test_end))
@@ -559,6 +558,18 @@ start = time.time()
 train_accuracies = []
 test_accuracies = []
 
+def save_checkpoint(epoch, counter):
+    if not save_model:
+        return 
+    if everyone_save or (rank == 0):
+        path = model_dir + "/" + "model_%s_epoch_%s.pt" % (rank, epoch)
+        torch.save({
+            'epoch': epoch,
+            'counter': counter,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            }, path)
+        
 
 def compute_accuracies():
     # Save the model in model_copy
@@ -631,7 +642,7 @@ def communicate():
     copy_to_model(model, partner_model)
 
 
-def end_of_epoch(epoch):
+def end_of_epoch(epoch, counter):
     # Now that the epoch has finished for process 0, we want to measure accuracy on it.
     # We do this by copying the entire model (Buffers and all) to the first sequential block
     # so everyone can see it
@@ -661,9 +672,8 @@ def end_of_epoch(epoch):
             writer.add_scalar('Test accuracy', test_accuracy, epoch)
 
     # If --save-model was given, save model of process 0 (We are at the end of an epoch)
-    if save_model:
-        if everyone_save or (rank == 0):
-            torch.save(model.state_dict(), model_dir + "/" + "model_%s_epoch_%s.pt" % (rank, epoch))
+    save_checkpoint(epoch, counter)
+    
 
     # Tell the scheduler we have finished an epoch
     scheduler.step()
@@ -676,7 +686,7 @@ try:
     # This counter will save the number of SGD steps performed on this process so far
     counter = 0
     virtual_epoch = 0
-
+    batch_times = []
     if size > 1:
         # Warm up phase
         for epoch in range(warmup_epochs):
@@ -689,8 +699,11 @@ try:
         # If size > 1 we perform popsgd
         for epoch in range(average_epochs):
             for (data, target) in train_loader:
+                
                 counter += 1
-
+                
+                batch_start = time.time()
+                
                 # Move data to the gpu
                 data, target = data.to(device), target.to(device)
 
@@ -706,7 +719,7 @@ try:
 
                 if rank == 0 and counter % log_interval == 0:
                     log('Train: Epoch: {} Step:{} Error: {:.6f}'.format(epoch + 1, counter, loss.item()))
-
+                    log("--------------------------------")
                     if writer:
                         # Add loss to the logs
                         writer.add_scalar('Train loss', loss.item(), counter)
@@ -714,15 +727,23 @@ try:
                         if counter % (20 * log_interval):
                             # Write whatever is in the buffers to the file
                             writer.flush()
-
+                
                 if counter % local_updates == 0:
                     communicate()
-
+                
+                batch_end = time.time()
+                
+                batch_times.append(batch_end - batch_start)
+                
                 # Compute and log accuracies, update scheduler, and wait for everyone to catch up
                 # at the end of each virtual epoch
                 if counter // steps_per_virtual_epoch != virtual_epoch:
                     virtual_epoch += 1
-                    end_of_epoch(virtual_epoch)
+                    if rank == 0 and len(batch_times) > 0:
+                        log("Average time/batch is %.3f" % (np.mean(batch_times)))
+                    batch_times.clear()
+                    end_of_epoch(virtual_epoch, counter)
+                    
 
     else:
         # If size=1 then we perform a simple SGD.
@@ -742,10 +763,11 @@ try:
             test(epoch, model, device, writer, train_loader, test_loader)
             scheduler.step()
 
-    log("WOOOOOOOOOOOOOOOOOO")
-    if rank == 0:
+    log("WOOOOOOOOOOOOOOOO")
+    if rank == 0 :
         # log("Best train accuracy: %s" % np.max(train_accuracies))
-        log("Best test accuracy: %s" % np.max(test_accuracies))
+        if len(test_accuracies) > 0:
+            log("Best test accuracy: %s" % np.max(test_accuracies))
 
     # Wait for everyone to finish
     comm.Barrier()
@@ -755,7 +777,13 @@ try:
 
     if rank == 0:
         log(end - start)
-
+    
+    if len(batch_times) > 0 :
+        log("Mean batch time %.3f, Std %.3f" % (np.mean(batch_times), np.std(batch_times)))
+        log("Min batch time %.3f, Max batch time %.3f"  % (np.min(batch_times), np.max(batch_times)))
+        log(batch_times)
+        
+    
     # Deallocate the window
     win.Free()
     if rank == 0:
