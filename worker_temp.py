@@ -119,8 +119,13 @@ def scheduler_construct(optimizer, dataset_name, warmup_epochs):
     return scheduler
 
 
-def loader_construct(dataset, batch_size=64, num_workers=16):
-    return data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
+def loader_construct(dataset, batch_size=64, num_workers=16, sampler=None):
+    if sampler is None:
+        return data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=True)
+    
+    return data.DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler)
+
+
 
 
 class MNISTNet(nn.Module):
@@ -473,7 +478,8 @@ if warmup_epochs > 0:
 
 filename = 'run_%s_%s_workers_%s_average_epochs_%s_%s_virtual_epochs' % (
     dataset_name, size, average_epochs, model_name, virtual_epoch_num) + \
-           warmup_included + "_%s_local_updates" % local_updates
+           warmup_included + "_%s_local_updates" % local_updates # + "_with_chunking"
+
 
 model_dir = 'models/' + filename
 if rank == 0:
@@ -503,7 +509,13 @@ partner_model = torch.empty(model_size, dtype=torch.float64, device=device)
 partner_buf = MPI.memory.fromaddress(partner_model.data_ptr(), partner_model.nelement() * partner_model.element_size())
 
 # Create dataloaders
-train_loader = loader_construct(train_set, batch_size=batch_size)
+num_proc = size // 2 if size > 1 else size
+idx = rank % num_proc
+sampler = torch.utils.data.DistributedSampler(train_set, num_proc, idx)
+
+sampler = None
+num_proc = 1
+train_loader = loader_construct(train_set, batch_size=batch_size, sampler=sampler)
 #test_loader = loader_construct(test_set, batch_size=test_batch_size, num_workers=16)
 
 # Divide the train and test sets to chunks of almost equal size to parallelise
@@ -698,51 +710,52 @@ try:
 
         # If size > 1 we perform popsgd
         for epoch in range(average_epochs):
-            for (data, target) in train_loader:
-                
-                counter += 1
-                
-                batch_start = time.time()
-                
-                # Move data to the gpu
-                data, target = data.to(device), target.to(device)
+            for _ in range(num_proc):
+                for (data, target) in train_loader:
+                    
+                    counter += 1
+                    
+                    batch_start = time.time()
+                    
+                    # Move data to the gpu
+                    data, target = data.to(device), target.to(device)
 
-                # Perform one SGD step and get the loss
-                loss = model_update(model, optimizer, epoch, data, target, criterion)
+                    # Perform one SGD step and get the loss
+                    loss = model_update(model, optimizer, epoch, data, target, criterion)
 
-                # Lock your current window so no one can try to read from it while you are updating the values
-                win.Lock(rank, lock_type=MPI.LOCK_EXCLUSIVE)
-                # Copy all the values from model to the copy which is sequential and everyone can see
-                model_to_copy(model, model_copy)
-                # Release the lock or else no one else can use it
-                win.Unlock(rank)
+                    # Lock your current window so no one can try to read from it while you are updating the values
+                    win.Lock(rank, lock_type=MPI.LOCK_EXCLUSIVE)
+                    # Copy all the values from model to the copy which is sequential and everyone can see
+                    model_to_copy(model, model_copy)
+                    # Release the lock or else no one else can use it
+                    win.Unlock(rank)
 
-                if rank == 0 and counter % log_interval == 0:
-                    log('Train: Epoch: {} Step:{} Error: {:.6f}'.format(epoch + 1, counter, loss.item()))
-                    log("--------------------------------")
-                    if writer:
-                        # Add loss to the logs
-                        writer.add_scalar('Train loss', loss.item(), counter)
+                    if rank == 0 and counter % log_interval == 0:
+                        log('Train: Epoch: {} Step:{} Error: {:.6f}'.format(epoch + 1, counter, loss.item()))
+                        log("--------------------------------")
+                        if writer:
+                            # Add loss to the logs
+                            writer.add_scalar('Train loss', loss.item(), counter)
 
-                        if counter % (20 * log_interval):
-                            # Write whatever is in the buffers to the file
-                            writer.flush()
-                
-                if counter % local_updates == 0:
-                    communicate()
-                
-                batch_end = time.time()
-                
-                batch_times.append(batch_end - batch_start)
-                
-                # Compute and log accuracies, update scheduler, and wait for everyone to catch up
-                # at the end of each virtual epoch
-                if counter // steps_per_virtual_epoch != virtual_epoch:
-                    virtual_epoch += 1
-                    if rank == 0 and len(batch_times) > 0:
-                        log("Average time/batch is %.3f" % (np.mean(batch_times)))
-                    batch_times.clear()
-                    end_of_epoch(virtual_epoch, counter)
+                            if counter % (20 * log_interval):
+                                # Write whatever is in the buffers to the file
+                                writer.flush()
+                    
+                    if counter % local_updates == 0:
+                        communicate()
+                    
+                    batch_end = time.time()
+                    
+                    batch_times.append(batch_end - batch_start)
+                    
+                    # Compute and log accuracies, update scheduler, and wait for everyone to catch up
+                    # at the end of each virtual epoch
+                    if counter // steps_per_virtual_epoch != virtual_epoch:
+                        virtual_epoch += 1
+                        if rank == 0 and len(batch_times) > 0:
+                            log("Average time/batch is %.3f" % (np.mean(batch_times)))
+                        batch_times.clear()
+                        end_of_epoch(virtual_epoch, counter)
                     
 
     else:
